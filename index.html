@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>國中簡易英文 - 30題動物動態圖卡拖曳測驗</title>
+  <!-- 引入 p5.js 核心庫-->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+  <!-- 引入 Tailwind CSS 進行外圍 UI 樣式修飾 -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background-color: #f0fdf4;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      user-select: none; /* 防止拖曳文字時誤選取文字 */
+    }
+    #canvas-container {
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+      border-radius: 1rem;
+      overflow: hidden;
+      background-color: #ffffff;
+    }
+  </style>
+</head>
+<body class="p-4">
+
+  <!-- 頂部標題區 -->
+  <header class="text-center mb-4">
+    <h1 class="text-3xl font-extrabold text-emerald-700 tracking-wide">🐾 國中簡易英文 - 30題動物圖卡挑戰</h1>
+    <p class="text-gray-600 text-sm mt-1">請將底下的英文單字拖曳放置到對應動物動畫圖卡下方，完成後點擊「交卷看成績」！</p>
+  </header>
+
+  <!-- p5.js Canvas 掛載容器 -->
+  <div id="canvas-container"></div>
+
+  <!-- 主程式邏輯 (sketch.js) -->
+  <script>
+    // ==========================================
+    // 1. 30 題完整動物題庫資料庫 (ANIMAL_DATABASE)
+    // ==========================================
+    const ANIMAL_DATABASE = [
+      { id: 0, name: 'Cat' },
+      { id: 1, name: 'Dog' },
+      { id: 2, name: 'Rabbit' },
+      { id: 3, name: 'Elephant' },
+      { id: 4, name: 'Lion' },
+      { id: 5, name: 'Monkey' },
+      { id: 6, name: 'Tiger' },
+      { id: 7, name: 'Bear' },
+      { id: 8, name: 'Giraffe' },
+      { id: 9, name: 'Zebra' },
+      { id: 10, name: 'Penguin' },
+      { id: 11, name: 'Dolphin' },
+      { id: 12, name: 'Panda' },
+      { id: 13, name: 'Koala' },
+      { id: 14, name: 'Kangaroo' },
+      { id: 15, name: 'Fox' },
+      { id: 16, name: 'Owl' },
+      { id: 17, name: 'Duck' },
+      { id: 18, name: 'Sheep' },
+      { id: 19, name: 'Horse' },
+      { id: 20, name: 'Pig' },
+      { id: 21, name: 'Cow' },
+      { id: 22, name: 'Frog' },
+      { id: 23, name: 'Snake' },
+      { id: 24, name: 'Turtle' },
+      { id: 25, name: 'Bee' },
+      { id: 26, name: 'Butterfly' },
+      { id: 27, name: 'Shark' },
+      { id: 28, name: 'Whale' },
+      { id: 29, name: 'Hippo' }
+    ];
+
+    // ==========================================
+    // 2. 全域變數與狀態管理 (Global State)
+    // ==========================================
+    let usedAnimalIds = new Set(); // 記錄已經考過的動物 ID，避免重複
+    let currentRoundAnimals = [];   // 當開啟回合抽出的 6 種動物
+
+    let dropZones = [];     // 目標放置區格陣列
+    let wordBlocks = [];    // 可拖曳的單字方塊陣列
+    let bottomSlots = [];   // 底部初始預留槽位陣列
+
+    let draggingBlock = null; // 當前正在拖曳中的單字方塊
+    let offsetX = 0;          // 拖曳時滑鼠與方塊左上角 X 偏移
+    let offsetY = 0;          // 拖曳時滑鼠與方塊左上角 Y 偏移
+
+    let startTime = 0;        // 測驗開始時間戳記
+    let elapsedTime = 0;      // 總耗時(秒)
+    let isSubmitted = false;  // 是否已經點擊交卷
+    let score = 0;            // 當開啟回合得分
+    let roundCount = 1;       // 目前測驗回合數
+
+    // 彩帶粒子系統陣列 (Confetti System)
+    let confettis = [];
+
+    // 按鈕座標與設定
+    let submitBtn = { x: 0, y: 0, w: 180, h: 46, label: "交卷看成績" };
+    let nextRoundBtn = { x: 0, y: 0, w: 220, h: 46, label: "進入下一輪 (換一批題目)" };
+
+    // ==========================================
+    // 3. p5.js 初始化與畫布設定 (setup)
+    // ==========================================
+    function setup() {
+      // 建立指定尺寸 Canvas 並掛載到畫面
+      let canvas = createCanvas(840, 620);
+      canvas.parent('canvas-container');
+
+      textAlign(CENTER, CENTER);
+      rectMode(CORNER);
+
+      // 啟動第一回合測驗
+      startNewRound();
+    }
+
+    // ==========================================
+    // 4. 回合抽題與狀態初始化 (startNewRound)
+    // ==========================================
+    function startNewRound() {
+      // 若所有 30 題都考過了，重置已考過的紀錄，循環重新開始
+      if (usedAnimalIds.size >= ANIMAL_DATABASE.length) {
+        usedAnimalIds.clear();
+      }
+
+      // 從題庫中篩選出尚未考過的動物
+      let availableAnimals = ANIMAL_DATABASE.filter(a => !usedAnimalIds.has(a.id));
+      
+      // 打亂剩餘題目並抽出 6 題
+      availableAnimals = shuffle(availableAnimals);
+      currentRoundAnimals = availableAnimals.slice(0, 6);
+
+      // 如果剩餘不足 6 題，補充已考過的動物湊滿 6 題
+      if (currentRoundAnimals.length < 6) {
+        let remainingNeeded = 6 - currentRoundAnimals.length;
+        let pool = ANIMAL_DATABASE.filter(a => !currentRoundAnimals.includes(a));
+        let extra = shuffle(pool).slice(0, remainingNeeded);
+        currentRoundAnimals = currentRoundAnimals.concat(extra);
+      }
+
+      // 標記這些動物已考過
+      currentRoundAnimals.forEach(a => usedAnimalIds.add(a.id));
+
+      // 重置互動資料結構與彩帶粒子
+      dropZones = [];
+      wordBlocks = [];
+      bottomSlots = [];
+      confettis = [];
+      draggingBlock = null;
+      isSubmitted = false;
+      score = 0;
+      startTime = millis(); // 重置計時器
+
+      // 版面配置參數 (2行 x 3列)
+      let cols = 3;
+      let cardW = 230;
+      let cardH = 170;
+      let startX = 45;
+      let startY = 60;
+      let gapX = 35;
+      let gapY = 20;
+
+      // 生成上方 6 個圖卡區域 (Drop Zones)
+      for (let i = 0; i < currentRoundAnimals.length; i++) {
+        let col = i % cols;
+        let row = Math.floor(i / cols);
+        let x = startX + col * (cardW + gapX);
+        let y = startY + row * (cardH + gapY);
+
+        dropZones.push({
+          id: i,
+          animal: currentRoundAnimals[i],
+          x: x,
+          y: y,
+          w: cardW,
+          h: cardH,
+          slotX: x + 25,
+          slotY: y + 120,
+          slotW: 180,
+          slotH: 40,
+          occupantBlock: null // 目前放置在此區域內的單字方塊
+        });
+      }
+
+      // 版面配置參數 (下方 6 個初始單字槽位)
+      let bottomStartY = 450;
+      let blockW = 110;
+      let blockH = 42;
+      let bottomGapX = 20;
+      let totalBottomWidth = 6 * blockW + 5 * bottomGapX;
+      let bottomStartX = (width - totalBottomWidth) / 2;
+
+      // 打亂當前 6 題的單字名稱順序
+      let shuffledWords = shuffle([...currentRoundAnimals]);
+
+      for (let i = 0; i < 6; i++) {
+        let slotX = bottomStartX + i * (blockW + bottomGapX);
+        let slotY = bottomStartY;
+
+        // 紀錄底部的空槽位資訊
+        bottomSlots.push({ x: slotX, y: slotY, w: blockW, h: blockH });
+
+        // 生成單字方塊物件
+        wordBlocks.push({
+          id: i,
+          name: shuffledWords[i].name,
+          x: slotX,
+          y: slotY,
+          w: blockW,
+          h: blockH,
+          homeX: slotX,
+          homeY: slotY,
+          currentZone: null
+        });
+      }
+
+      // 按鈕位置更新
+      submitBtn.x = width / 2 - submitBtn.w / 2;
+      submitBtn.y = 525;
+      nextRoundBtn.x = width / 2 - nextRoundBtn.w / 2;
+      nextRoundBtn.y = 525;
+    }
+
+    // ==========================================
+    // 5. p5.js 主畫布繪製 (draw)
+    // ==========================================
+    function draw() {
+      background(255); // 畫布背景純白
+
+      // 1. 計算測驗時間 (未交卷時更新)
+      if (!isSubmitted) {
+        elapsedTime = floor((millis() - startTime) / 1000);
+      }
+
+      // 2. 繪製頂部資訊欄
+      drawHeaderInfo();
+
+      // 3. 繪製 6 個動物圖卡與目標放置區
+      for (let zone of dropZones) {
+        drawAnimalCard(zone);
+      }
+
+      // 4. 繪製下方單字備選區槽位
+      drawBottomSlots();
+
+      // 5. 繪製所有單字方塊 (拖曳中的方塊留在最後繪製以維持在最頂層)
+      for (let block of wordBlocks) {
+        if (block !== draggingBlock) {
+          drawWordBlock(block);
+        }
+      }
+      if (draggingBlock) {
+        drawWordBlock(draggingBlock, true);
+      }
+
+      // 6. 繪製控制按鈕
+      drawButtons();
+
+      // 7. 交卷後繪製結算彈窗與噴彩帶效果
+      if (isSubmitted) {
+        // 若達到 60 分以上，持續更新並繪製彩帶特效 (Confetti)
+        if (score >= 60) {
+          updateAndDrawConfetti();
+        }
+        drawScorePanel();
+      }
+    }
+
+    // ==========================================
+    // 6. UI 視覺繪製組件群 (UI Drawing Functions)
+    // ==========================================
+
+    // 繪製頂部狀態列
+    function drawHeaderInfo() {
+      push();
+      fill(51);
+      textSize(15);
+      textStyle(BOLD);
+      textAlign(LEFT, CENTER);
+      text(`⏱️ 用時：${elapsedTime} 秒`, 45, 25);
+
+      textAlign(RIGHT, CENTER);
+      text(`進度：已挑戰 ${usedAnimalIds.size} / 30 題 (第 ${roundCount} 輪)`, width - 45, 25);
+      pop();
+    }
+
+    // 繪製動物圖卡區域
+    function drawAnimalCard(zone) {
+      push();
+      strokeWeight(2);
+      stroke(226, 232, 240);
+      fill(248, 250, 252);
+      rect(zone.x, zone.y, zone.w, zone.h, 12); // 卡片主體
+
+      // 繪製 30 種高精細可愛動態動物
+      drawProceduralAnimal(zone.animal.name, zone.x + zone.w / 2, zone.y + 58);
+
+      // 繪製單字放置槽 (Drop Slot)
+      strokeWeight(2);
+      if (zone.occupantBlock) {
+        stroke(99, 102, 241, 150); // 有放單字時顯示紫色框
+        fill(238, 242, 255);
+      } else {
+        stroke(203, 213, 225); // 空置時為灰色虛線感框
+        fill(241, 245, 249);
+      }
+      rect(zone.slotX, zone.slotY, zone.slotW, zone.slotH, 8);
+
+      // 空置提示文字
+      if (!zone.occupantBlock && !isSubmitted) {
+        noStroke();
+        fill(148, 163, 184);
+        textSize(12);
+        textStyle(NORMAL);
+        textAlign(CENTER, CENTER);
+        text("拖曳單字到此", zone.slotX + zone.slotW / 2, zone.slotY + zone.slotH / 2);
+      }
+
+      // 交卷後顯示對錯標示
+      if (isSubmitted && zone.occupantBlock) {
+        let isCorrect = (zone.occupantBlock.name === zone.animal.name);
+        textAlign(CENTER, CENTER);
+        textSize(22);
+        if (isCorrect) {
+          text("✅", zone.x + zone.w - 20, zone.y + 20);
+        } else {
+          text("❌", zone.x + zone.w - 20, zone.y + 20);
+        }
+      }
+      pop();
+    }
+
+    // 繪製下方備選區槽位
+    function drawBottomSlots() {
+      push();
+      stroke(203, 213, 225);
+      strokeWeight(2);
+      fill(241, 245, 249);
+      for (let slot of bottomSlots) {
+        rect(slot.x, slot.y, slot.w, slot.h, 8);
+      }
+      pop();
+    }
+
+    // 繪製單字方塊
+    function drawWordBlock(block, isDragging = false) {
+      push();
+      if (isDragging) {
+        // 拖曳時陰影
+        fill(0, 0, 0, 25);
+        noStroke();
+        rect(block.x + 4, block.y + 4, block.w, block.h, 8);
+      }
+
+      strokeWeight(2);
+      stroke(79, 70, 229);
+      fill(isDragging ? 224 : 238, 231, 255);
+
+      rect(block.x, block.y, block.w, block.h, 8);
+
+      noStroke();
+      fill(49, 46, 129);
+      textSize(15);
+      textStyle(BOLD);
+      textAlign(CENTER, CENTER);
+      text(block.name, block.x + block.w / 2, block.y + block.h / 2);
+      pop();
+    }
+
+    // 繪製按鈕區
+    function drawButtons() {
+      push();
+      strokeWeight(2);
+      textStyle(BOLD);
+      textSize(16);
+      textAlign(CENTER, CENTER);
+
+      if (!isSubmitted) {
+        // 「交卷看成績」按鈕
+        let isHover = isMouseOverBtn(submitBtn);
+        stroke(16, 185, 129);
+        fill(isHover ? 5 : 16, isHover ? 150 : 185, 129);
+        rect(submitBtn.x, submitBtn.y, submitBtn.w, submitBtn.h, 23);
+
+        fill(255);
+        noStroke();
+        text(submitBtn.label, submitBtn.x + submitBtn.w / 2, submitBtn.y + submitBtn.h / 2);
+      }
+      pop();
+    }
+
+    // 繪製分數結算彈窗
+    function drawScorePanel() {
+      push();
+      fill(0, 0, 0, 120); // 背景暗色遮罩
+      rect(0, 0, width, height);
+
+      let pW = 420;
+      let pH = 260;
+      let pX = width / 2 - pW / 2;
+      let pY = height / 2 - pH / 2 - 20;
+
+      strokeWeight(3);
+      stroke(99, 102, 241);
+      fill(255);
+      rect(pX, pY, pW, pH, 20);
+
+      noStroke();
+      fill(30, 41, 59);
+      textSize(24);
+      textStyle(BOLD);
+      textAlign(CENTER, TOP);
+      text(`🎉 第 ${roundCount} 輪測驗結果 🎉`, width / 2, pY + 25);
+
+      textSize(38);
+      fill(score >= 60 ? color(234, 88, 12) : color(225, 29, 72));
+      text(`${score} 分`, width / 2, pY + 70);
+
+      textSize(15);
+      fill(71, 85, 105);
+      textStyle(NORMAL);
+      let comment = score === 100 ? "太強了！完美通關！💯" : (score >= 60 ? "做得好！順利過關！🎉" : "再接再厲，多練習幾次！💪");
+      text(comment, width / 2, pY + 125);
+
+      text(`⏱️ 耗時：${elapsedTime} 秒 | 總進度：${usedAnimalIds.size} / 30 題`, width / 2, pY + 155);
+
+      // 下一輪按鈕繪製
+      nextRoundBtn.y = pY + 195;
+      let isHover = isMouseOverBtn(nextRoundBtn);
+      stroke(99, 102, 241);
+      fill(isHover ? 79 : 99, isHover ? 70 : 102, 241);
+      rect(nextRoundBtn.x, nextRoundBtn.y, nextRoundBtn.w, nextRoundBtn.h, 23);
+
+      fill(255);
+      noStroke();
+      textStyle(BOLD);
+      text(nextRoundBtn.label, nextRoundBtn.x + nextRoundBtn.w / 2, nextRoundBtn.y + nextRoundBtn.h / 2);
+      pop();
+    }
+
+    // 輔助函式：判斷滑鼠是否在按鈕上
+    function isMouseOverBtn(btn) {
+      return mouseX >= btn.x && mouseX <= btn.x + btn.w &&
+             mouseY >= btn.y && mouseY <= btn.y + btn.h;
+    }
+
+    // ==========================================
+    // 7. 彩帶/紙花動畫系統 (Confetti Physics System)
+    // ==========================================
+    function createConfettiCluster() {
+      confettis = [];
+      let palette = ['#f43f5e', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
+      // 產生 120 顆彩色紙花
+      for (let i = 0; i < 120; i++) {
+        confettis.push({
+          x: random(0, width),
+          y: random(-100, -10),
+          w: random(6, 12),
+          h: random(8, 14),
+          color: random(palette),
+          vx: random(-2, 2),
+          vy: random(2, 6),
+          rot: random(0, TWO_PI),
+          vRot: random(-0.1, 0.1)
+        });
+      }
+    }
+
+    function updateAndDrawConfetti() {
+      push();
+      noStroke();
+      for (let p of confettis) {
+        // 更新物理位置
+        p.x += p.vx + sin(frameCount * 0.05) * 0.5;
+        p.y += p.vy;
+        p.rot += p.vRot;
+
+        // 若落出底部，從上方循環飄落
+        if (p.y > height) {
+          p.y = random(-40, -10);
+          p.x = random(0, width);
+        }
+
+        // 繪製旋轉紙花
+        push();
+        translate(p.x, p.y);
+        rotate(p.rot);
+        fill(p.color);
+        rect(-p.w / 2, -p.h / 2, p.w, p.h, 2);
+        pop();
+      }
+      pop();
+    }
+
+    // ==========================================
+    // 8. 重構 30 種高精細具體可愛動物 Procedural 繪製
+    // ==========================================
+    function drawProceduralAnimal(name, cx, cy) {
+      push();
+      translate(cx, cy);
+      strokeWeight(2);
+      stroke(40);
+      let t = frameCount * 0.06; // 統一動畫時間參數
+
+      switch (name) {
+        case 'Cat': // 貓咪：耳內粉紅、可愛圓眼睛、貓鬍鬚、小嘴巴
+          fill(251, 146, 60); ellipse(0, 0, 52, 44); // 臉
+          // 耳朵
+          fill(249, 115, 22);
+          triangle(-20, -12, -14, -32 + sin(t)*2, -4, -18);
+          triangle(20, -12, 14, -32 + sin(t)*2, 4, -18);
+          fill(254, 205, 211);
+          triangle(-17, -14, -13, -27 + sin(t)*2, -6, -18);
+          triangle(17, -14, 13, -27 + sin(t)*2, 6, -18);
+          // 眼睛
+          fill(255); ellipse(-11, -4, 10, 12); ellipse(11, -4, 10, 12);
+          fill(30); ellipse(-10, -4, 5, 8); ellipse(10, -4, 5, 8);
+          fill(255); ellipse(-11, -6, 3, 3); ellipse(9, -6, 3, 3);
+          // 鼻子嘴巴
+          fill(244, 114, 182); triangle(-3, 3, 3, 3, 0, 6);
+          noFill(); stroke(50);
+          arc(-4, 9, 8, 6, 0, PI); arc(4, 9, 8, 6, 0, PI);
+          // 貓鬍鬚
+          line(-18, 2, -30, -1); line(-18, 6, -32, 7);
+          line(18, 2, 30, -1); line(18, 6, 32, 7);
+          break;
+
+        case 'Dog': // 狗狗：垂耳、大嘴巴、吐舌頭
+          fill(217, 119, 6); ellipse(0, 2, 54, 46); // 頭部
+          // 垂耳 (動態擺動)
+          push(); rotate(sin(t)*0.1); fill(180, 83, 9); ellipse(-28, 2, 18, 34); pop();
+          push(); rotate(-sin(t)*0.1); fill(180, 83, 9); ellipse(28, 2, 18, 34); pop();
+          // 嘴吻白圈
+          fill(255); ellipse(0, 10, 28, 22);
+          // 眼睛與黑鼻
+          fill(30); ellipse(-11, -4, 6, 6); ellipse(11, -4, 6, 6);
+          fill(255); ellipse(-12, -6, 2, 2); ellipse(10, -6, 2, 2);
+          fill(30); ellipse(0, 4, 10, 7);
+          // 吐舌頭
+          fill(244, 114, 182); arc(0, 15, 10, 12 + sin(t)*2, 0, PI);
+          break;
+
+        case 'Rabbit': // 兔子：長耳朵、粉紅耳心、紅眼睛、三瓣嘴
+          fill(255);
+          // 長耳擺動
+          push(); rotate(sin(t)*0.08); fill(255); ellipse(-10, -32, 14, 42); fill(244, 114, 182); ellipse(-10, -32, 8, 30); pop();
+          push(); rotate(-sin(t)*0.08); fill(255); ellipse(10, -32, 14, 42); fill(244, 114, 182); ellipse(10, -32, 8, 30); pop();
+          fill(255); ellipse(0, 0, 52, 46); // 臉
+          fill(239, 68, 68); ellipse(-10, -4, 7, 7); ellipse(10, -4, 7, 7); // 眼神
+          fill(255); ellipse(-11, -6, 2, 2); ellipse(9, -6, 2, 2);
+          fill(244, 114, 182); ellipse(0, 4, 5, 4);
+          noFill(); stroke(50); arc(-3, 8, 6, 5, 0, PI); arc(3, 8, 6, 5, 0, PI);
+          break;
+
+        case 'Elephant': // 大象：大扇耳、甩鼻子、白象牙
+          fill(147, 197, 253);
+          // 大耳朵
+          ellipse(-30, -2, 32, 40); ellipse(30, -2, 32, 40);
+          fill(191, 219, 254); ellipse(-30, -2, 20, 26); ellipse(30, -2, 20, 26);
+          fill(147, 197, 253); ellipse(0, 0, 58, 48); // 頭
+          fill(30); ellipse(-12, -6, 5, 5); ellipse(12, -6, 5, 5);
+          // 白象牙
+          fill(255); triangle(-12, 10, -18, 22, -8, 14); triangle(12, 10, 18, 22, 8, 14);
+          // 長鼻搖晃
+          stroke(100, 116, 139); strokeWeight(8); noFill();
+          beginShape(); vertex(0, 6); curveVertex(0, 6); curveVertex(sin(t)*14, 20); curveVertex(sin(t)*14 + 10, 26); endShape();
+          strokeWeight(2);
+          break;
+
+        case 'Lion': // 獅子：濃密棕色鬃毛、英俊面孔
+          fill(180, 83, 9); ellipse(0, 0, 72 + sin(t)*2, 72 + sin(t)*2); // 鬃毛
+          fill(251, 191, 36); ellipse(0, 0, 50, 48); // 臉
+          fill(217, 119, 6); ellipse(-18, -18, 12, 12); ellipse(18, -18, 12, 12); // 耳
+          fill(255); ellipse(-10, -5, 8, 8); ellipse(10, -5, 8, 8);
+          fill(30); ellipse(-10, -5, 4, 4); ellipse(10, -5, 4, 4);
+          fill(180, 83, 9); triangle(-6, 2, 6, 2, 0, 8); // 鼻子
+          break;
+
+        case 'Monkey': // 猴子：大耳朵、臉蛋心型色塊
+          fill(180, 83, 9); ellipse(-26, 0, 18, 18); ellipse(26, 0, 18, 18); // 耳
+          fill(254, 205, 211); ellipse(-26, 0, 10, 10); ellipse(26, 0, 10, 10);
+          fill(180, 83, 9); ellipse(0, 0, 50, 46); // 頭
+          fill(254, 215, 170); ellipse(0, 4, 38, 32); // 嘴面
+          fill(30); ellipse(-9, -4, 5, 5); ellipse(9, -4, 5, 5);
+          fill(120, 53, 15); ellipse(0, 3, 6, 4);
+          noFill(); stroke(50); arc(0, 10, 14, 8, 0, PI);
+          break;
+
+        case 'Tiger': // 老虎：王字斑紋、黑色條紋
+          fill(249, 115, 22); ellipse(0, 0, 56, 46); // 頭
+          triangle(-20, -12, -12, -30, -4, -18); triangle(20, -12, 12, -30, 4, -18); // 耳
+          fill(30); line(-6, -18, 6, -18); line(-10, -13, 10, -13); line(0, -21, 0, -10); // 王字
+          // 額側斑紋
+          line(-24, -2, -16, 0); line(-23, 4, -16, 4); line(24, -2, 16, 0); line(23, 4, 16, 4);
+          fill(255); ellipse(0, 8, 24, 18);
+          fill(30); ellipse(-10, -3, 6, 6); ellipse(10, -3, 6, 6); ellipse(0, 4, 7, 5);
+          break;
+
+        case 'Bear': // 熊：圓耳、吻部、厚重可愛
+          fill(120, 53, 15); ellipse(-22, -18, 20, 20); ellipse(22, -18, 20, 20); // 耳
+          fill(180, 83, 9); ellipse(-22, -18, 10, 10); ellipse(22, -18, 10, 10);
+          fill(120, 53, 15); ellipse(0, 0, 60, 52); // 頭
+          fill(254, 215, 170); ellipse(0, 6, 28, 22); // 嘴吻
+          fill(30); ellipse(-11, -6, 6, 6); ellipse(11, -6, 6, 6); ellipse(0, 2, 9, 7);
+          break;
+
+        case 'Giraffe': // 長頸鹿：頭角、網狀斑點
+          fill(245, 158, 11); rect(-10, -10, 20, 36, 6); // 脖子
+          ellipse(0, -15, 42, 38); // 頭
+          // 頭角
+          fill(180, 83, 9); ellipse(-10, -34 + sin(t)*2, 8, 8); ellipse(10, -34 + sin(t)*2, 8, 8);
+          stroke(50); line(-10, -34 + sin(t)*2, -10, -25); line(10, -34 + sin(t)*2, 10, -25);
+          // 斑點
+          fill(180, 83, 9); ellipse(-4, 6, 8, 8); ellipse(4, 16, 7, 7); ellipse(-4, -18, 6, 6);
+          fill(30); ellipse(-9, -18, 4, 4); ellipse(9, -18, 4, 4);
+          break;
+
+        case 'Zebra': // 斑馬：黑白相間條紋、鬃毛
+          fill(255); ellipse(0, 0, 54, 46); // 頭
+          fill(51); triangle(-15, -15, -10, -30, -2, -18); triangle(15, -15, 10, -30, 2, -18);
+          // 斑紋
+          stroke(51); strokeWeight(3);
+          line(-18, -8, -6, -4); line(-20, 0, -6, 1); line(-18, 8, -6, 6);
+          line(18, -8, 6, -4); line(20, 0, 6, 1); line(18, 8, 6, 6);
+          strokeWeight(2);
+          fill(30); ellipse(-9, -4, 5, 5); ellipse(9, -4, 5, 5);
+          fill(100); ellipse(0, 10, 22, 14); // 嘴巴
+          break;
+
+        case 'Penguin': // 企鵝：搖擺身體、黃色嘴巴腳掌
+          push(); rotate(sin(t)*0.08);
+          fill(15, 23, 42); ellipse(0, 0, 48, 58); // 背
+          fill(255); ellipse(0, 4, 34, 44); // 肚
+          fill(30); ellipse(-8, -8, 5, 5); ellipse(8, -8, 5, 5);
+          fill(255); ellipse(-9, -9, 2, 2); ellipse(7, -9, 2, 2);
+          fill(245, 158, 11); triangle(-5, -2, 5, -2, 0, 6); // 喙
+          pop();
+          fill(245, 158, 11); ellipse(-10, 26, 14, 6); ellipse(10, 26, 14, 6); // 腳
+          break;
+
+        case 'Dolphin': // 海豚：波浪跳躍、背鰭與肚皮
+          push(); translate(0, sin(t)*5); rotate(-0.1);
+          fill(2, 132, 199); ellipse(0, 0, 68, 34); // 身
+          triangle(6, -15, 20, -2, -2, -4); // 背鰭
+          fill(224, 242, 254); arc(0, 3, 56, 20, 0, PI); // 肚
+          fill(255); ellipse(-18, -4, 5, 5); fill(30); ellipse(-18, -4, 2, 2);
+          pop();
+          break;
+
+        case 'Panda': // 貓熊：黑眼圈、圓黑耳
+          fill(30); ellipse(-22, -18, 18, 18); ellipse(22, -18, 18, 18); // 耳
+          fill(255); ellipse(0, 0, 58, 50); // 頭
+          fill(30); ellipse(-12, -4, 16, 20); ellipse(12, -4, 16, 20); // 黑眼圈
+          fill(255); ellipse(-12, -6, 5, 5); ellipse(12, -6, 5, 5);
+          fill(30); ellipse(-12, -6, 2, 2); ellipse(12, -6, 2, 2); ellipse(0, 8, 8, 6);
+          break;
+
+        case 'Koala': // 無尾熊：毛茸茸大耳、招牌大黑鼻
+          fill(100, 116, 139); ellipse(-26, -14, 26, 26); ellipse(26, -14, 26, 26); // 大耳
+          fill(203, 213, 225); ellipse(-26, -14, 14, 14); ellipse(26, -14, 14, 14);
+          fill(100, 116, 139); ellipse(0, 0, 56, 48); // 頭
+          fill(30); ellipse(0, 4, 16, 24); // 大黑鼻
+          fill(255); ellipse(-12, -6, 5, 5); ellipse(12, -6, 5, 5);
+          fill(30); ellipse(-12, -6, 2, 2); ellipse(12, -6, 2, 2);
+          break;
+
+        case 'Kangaroo': // 袋鼠：尖長耳朵、可愛面孔
+          fill(217, 119, 6); ellipse(0, 2, 50, 46); // 頭
+          triangle(-16, -10, -10, -34, -2, -16); triangle(16, -10, 10, -34, 2, -16); // 長耳
+          fill(254, 215, 170); ellipse(0, 10, 26, 20);
+          fill(30); ellipse(-9, -6, 5, 5); ellipse(9, -6, 5, 5); ellipse(0, 4, 7, 5);
+          break;
+
+        case 'Fox': // 狐狸：尖尖白臉頰、大耳朵
+          fill(234, 88, 12); ellipse(0, 0, 56, 44); // 頭
+          triangle(-20, -10, -14, -32 + sin(t)*2, -2, -16); triangle(20, -10, 14, -32 + sin(t)*2, 2, -16);
+          fill(255); triangle(-24, 2, 0, 18, -4, -2); triangle(22, 2, 0, 18, 4, -2); // 白頰
+          fill(30); ellipse(-10, -4, 5, 5); ellipse(10, -4, 5, 5); ellipse(0, 12, 6, 5);
+          break;
+
+        case 'Owl': // 貓頭鷹：超大雙眼、羽毛胸斑
+          fill(133, 77, 14); ellipse(0, 0, 54, 56); // 身體
+          fill(254, 240, 138); ellipse(-12, -6, 22, 22); ellipse(12, -6, 22, 22); // 眼眶
+          fill(255); ellipse(-12, -6, 14, 14); ellipse(12, -6, 14, 14);
+          fill(30); ellipse(-12, -6, 7, 7); ellipse(12, -6, 7, 7);
+          fill(245, 158, 11); triangle(-4, 0, 4, 0, 0, 8); // 喙
+          // 羽毛斑點
+          noFill(); stroke(180, 100, 20); arc(-8, 14, 8, 6, 0, PI); arc(8, 14, 8, 6, 0, PI);
+          break;
+
+        case 'Duck': // 鴨子：扁扁橘嘴、頭頂小毛
+          fill(250, 204, 21); ellipse(0, 0, 52, 46); // 頭
+          fill(234, 179, 8); ellipse(-2, -22, 8, 10); ellipse(4, -21, 6, 8); // 呆毛
+          fill(30); ellipse(-10, -6, 5, 5); ellipse(10, -6, 5, 5);
+          fill(249, 115, 22); ellipse(0, 6 + sin(t)*2, 26, 14); // 大扁嘴
+          break;
+
+        case 'Sheep': // 綿羊：蓬鬆雲朵毛、粉紅小臉
+          fill(241, 245, 249);
+          // 雲朵羊毛球
+          ellipse(-20, -10, 24, 24); ellipse(20, -10, 24, 24);
+          ellipse(-16, 12, 24, 24); ellipse(16, 12, 24, 24);
+          ellipse(0, -18, 28, 28); ellipse(0, 0, 58, 50);
+          fill(254, 215, 170); ellipse(0, 4, 36, 30); // 臉
+          fill(30); ellipse(-8, 0, 5, 5); ellipse(8, 0, 5, 5);
+          fill(244, 114, 182); ellipse(0, 6, 4, 3);
+          break;
+
+        case 'Horse': // 馬：棕毛鬃鬃、白鼻樑
+          fill(180, 83, 9); ellipse(0, 0, 48, 54); // 頭
+          triangle(-12, -18, -8, -32, -2, -20); triangle(12, -18, 8, -32, 2, -20); // 耳
+          fill(30); rect(-4, -24, 8, 12, 4); // 鬃毛
+          fill(254, 215, 170); rect(-6, -10, 12, 24, 4); // 鼻樑白斑
+          fill(30); ellipse(-8, -4, 4, 4); ellipse(8, -4, 4, 4);
+          break;
+
+        case 'Pig': // 粉紅豬：豬鼻孔、垂耳
+          fill(244, 114, 182); ellipse(0, 0, 58, 50); // 頭
+          push(); rotate(-0.2); ellipse(-22, -18, 14, 20); pop(); // 垂耳
+          push(); rotate(0.2); ellipse(22, -18, 14, 20); pop();
+          fill(251, 146, 60); ellipse(0, 4, 24, 18); // 豬鼻子
+          fill(180, 50, 50); ellipse(-5, 4, 4, 4); ellipse(5, 4, 4, 4);
+          fill(30); ellipse(-12, -6, 5, 5); ellipse(12, -6, 5, 5);
+          break;
+
+        case 'Cow': // 乳牛：黑白斑塊、牛角、牛鼻子
+          fill(255); ellipse(0, 0, 58, 48); // 頭
+          fill(51); ellipse(-16, -10, 18, 14); ellipse(14, 6, 20, 16); // 黑斑
+          // 牛角
+          fill(251, 191, 36); triangle(-18, -14, -24, -26, -10, -20); triangle(18, -14, 24, -26, 10, -20);
+          fill(254, 205, 211); ellipse(0, 10, 28, 20); // 大嘴鼻
+          fill(30); ellipse(-10, -4, 4, 4); ellipse(10, -4, 4, 4);
+          break;
+
+        case 'Frog': // 青蛙：大凸眼、腮紅、微笑了
+          fill(34, 197, 94); ellipse(0, 6, 58, 42); // 臉
+          // 大凸眼
+          ellipse(-16, -14 + sin(t)*2, 22, 22); ellipse(16, -14 + sin(t)*2, 22, 22);
+          fill(255); ellipse(-16, -14 + sin(t)*2, 12, 12); ellipse(16, -14 + sin(t)*2, 12, 12);
+          fill(30); ellipse(-16, -14 + sin(t)*2, 5, 5); ellipse(16, -14 + sin(t)*2, 5, 5);
+          fill(244, 114, 182, 150); ellipse(-18, 10, 8, 6); ellipse(18, 10, 8, 6); // 腮紅
+          noFill(); stroke(30); arc(0, 10, 22, 12, 0, PI);
+          break;
+
+        case 'Snake': // 蛇：擺動身軀、信子吐出
+          stroke(21, 128, 61); strokeWeight(12); noFill();
+          beginShape();
+          for (let x = -25; x <= 25; x += 5) {
+            curveVertex(x, sin(t + x * 0.12) * 12);
+          }
+          endShape();
+          strokeWeight(2); fill(34, 197, 94); ellipse(-22, sin(t - 2.5)*12, 18, 16); // 頭
+          fill(30); ellipse(-24, sin(t - 2.5)*12 - 2, 3, 3);
+          // 紅蛇信
+          stroke(239, 68, 68); line(-30, sin(t - 2.5)*12, -36, sin(t - 2.5)*12);
+          break;
+
+        case 'Turtle': // 烏龜：綠色龜殼花紋、伸頭
+          fill(16, 185, 129); ellipse(-28, 0, 20, 16); // 頭
+          fill(30); ellipse(-30, -2, 3, 3);
+          fill(4, 120, 87); ellipse(0, 2, 56, 42); // 龜殼
+          stroke(16, 185, 129); fill(5, 150, 105);
+          ellipse(-8, -4, 12, 10); ellipse(8, -4, 12, 10); ellipse(0, 10, 12, 10); // 殼紋
+          break;
+
+        case 'Bee': // 蜜蜂：黑黃條紋、透明拍翅
+          fill(250, 204, 21); ellipse(0, 2, 48, 38); // 身
+          fill(30); rect(-6, -15, 6, 34, 2); rect(6, -15, 6, 34, 2); // 條紋
+          fill(30); ellipse(-14, -2, 4, 4); // 眼
+          // 翅膀拍動
+          fill(224, 242, 254, 200);
+          ellipse(-4, -22 + sin(t*6)*4, 18, 24); ellipse(4, -22 - sin(t*6)*4, 18, 24);
+          break;
+
+        case 'Butterfly': // 蝴蝶：展翅拍動、美麗花紋
+          push(); rotate(sin(t*3)*0.12);
+          fill(168, 85, 247);
+          ellipse(-18, -12, 28, 28); ellipse(18, -12, 28, 28); // 上翅
+          ellipse(-14, 10, 22, 22); ellipse(14, 10, 22, 22); // 下翅
+          fill(253, 224, 71);
+          ellipse(-18, -12, 12, 12); ellipse(18, -12, 12, 12);
+          fill(30); rect(-3, -16, 6, 32, 3); // 軀幹
+          pop();
+          break;
+
+        case 'Shark': // 鯊魚：銳利背鰭、鰓裂、白色肚皮
+          fill(71, 85, 105); ellipse(0, 0, 70, 36); // 身
+          triangle(-4, -16, 12, -32, 16, -10); // 背鰭
+          fill(241, 245, 249); arc(0, 3, 58, 22, 0, PI); // 肚皮
+          fill(255); ellipse(-20, -4, 5, 5); fill(30); ellipse(-20, -4, 2, 2);
+          stroke(100); line(-8, 0, -8, 6); line(-4, 0, -4, 6); line(0, 0, 0, 6); // 鰓
+          break;
+
+        case 'Whale': // 鯨魚：頂部噴水花、大肚子
+          fill(37, 99, 235); ellipse(0, 6, 72, 40); // 軀體
+          fill(224, 242, 254); arc(0, 10, 58, 24, 0, PI); // 大白肚
+          // 噴水花
+          fill(186, 230, 253);
+          ellipse(0, -18 + sin(t*2)*3, 8, 14); ellipse(-8, -20 + sin(t*2)*3, 8, 12); ellipse(8, -20 + sin(t*2)*3, 8, 12);
+          fill(255); ellipse(-20, 0, 6, 6); fill(30); ellipse(-20, 0, 3, 3);
+          break;
+
+        case 'Hippo': // 河馬：巨大吻部、小耳朵
+          fill(100, 116, 139);
+          ellipse(-22, -18, 12, 12); ellipse(22, -18, 12, 12); // 小耳朵
+          ellipse(0, -4, 56, 44); // 頭
+          ellipse(0, 10, 42, 26); // 巨大嘴吻
+          fill(30); ellipse(-12, -10, 5, 5); ellipse(12, -10, 5, 5); // 眼睛
+          ellipse(-10, 10, 5, 5); ellipse(10, 10, 5, 5); // 鼻孔
+          break;
+      }
+      pop();
+    }
+
+    // ==========================================
+    // 9. 互動事件監聽 (Mouse & Drag Events)
+    // ==========================================
+
+    // 滑鼠按下事件 (mousePressed)
+    function mousePressed() {
+      // 若已交卷，點擊「進入下一輪」按鈕觸發新一輪測驗
+      if (isSubmitted) {
+        if (isMouseOverBtn(nextRoundBtn)) {
+          roundCount++;
+          startNewRound();
+        }
+        return;
+      }
+
+      // 檢查是否點擊「交卷看成績」
+      if (isMouseOverBtn(submitBtn)) {
+        calculateScore();
+        return;
+      }
+
+      // 檢查是否點擊單字方塊並開始拖曳 (逆序檢查確保點擊最上層)
+      for (let i = wordBlocks.length - 1; i >= 0; i--) {
+        let block = wordBlocks[i];
+        if (mouseX >= block.x && mouseX <= block.x + block.w &&
+            mouseY >= block.y && mouseY <= block.y + block.h) {
+          
+          draggingBlock = block;
+          offsetX = mouseX - block.x;
+          offsetY = mouseY - block.y;
+
+          // 若方塊原先在某個 Drop Zone，離開時解除佔用關係
+          if (block.currentZone) {
+            block.currentZone.occupantBlock = null;
+            block.currentZone = null;
+          }
+          break;
+        }
+      }
+    }
+
+    // 滑鼠拖曳中事件 (mouseDragged)
+    function mouseDragged() {
+      if (draggingBlock) {
+        draggingBlock.x = mouseX - offsetX;
+        draggingBlock.y = mouseY - offsetY;
+      }
+    }
+
+    // 滑鼠放開事件 (mouseReleased) - 放鬆吸附與交換 (Swap) 邏輯
+    function mouseReleased() {
+      if (!draggingBlock) return;
+
+      let droppedInZone = false;
+
+      for (let zone of dropZones) {
+        let blockCenterX = draggingBlock.x + draggingBlock.w / 2;
+        let blockCenterY = draggingBlock.y + draggingBlock.h / 2;
+
+        // 判斷中心點是否落入 Drop Zone 的槽位區
+        if (blockCenterX >= zone.slotX && blockCenterX <= zone.slotX + zone.slotW &&
+            blockCenterY >= zone.slotY && blockCenterY <= zone.slotY + zone.slotH) {
+          
+          droppedInZone = true;
+
+          // 如果目標區域已有方塊 -> 進行位置交換 (Swap)
+          if (zone.occupantBlock && zone.occupantBlock !== draggingBlock) {
+            let existingBlock = zone.occupantBlock;
+
+            // 原有方塊歸位回被拖曳方塊的原本 Home 點
+            existingBlock.x = draggingBlock.homeX;
+            existingBlock.y = draggingBlock.homeY;
+            existingBlock.currentZone = null;
+
+            // 新方塊吸附入槽
+            zone.occupantBlock = draggingBlock;
+            draggingBlock.currentZone = zone;
+            draggingBlock.x = zone.slotX + (zone.slotW - draggingBlock.w) / 2;
+            draggingBlock.y = zone.slotY + (zone.slotH - draggingBlock.h) / 2;
+          } 
+          else {
+            // 空槽直接吸附入槽
+            zone.occupantBlock = draggingBlock;
+            draggingBlock.currentZone = zone;
+            draggingBlock.x = zone.slotX + (zone.slotW - draggingBlock.w) / 2;
+            draggingBlock.y = zone.slotY + (zone.slotH - draggingBlock.h) / 2;
+          }
+          break;
+        }
+      }
+
+      // 未落入任何有效區域 -> 彈回底部備選區 (歸位)
+      if (!droppedInZone) {
+        draggingBlock.x = draggingBlock.homeX;
+        draggingBlock.y = draggingBlock.homeY;
+        draggingBlock.currentZone = null;
+      }
+
+      draggingBlock = null;
+    }
+
+    // ==========================================
+    // 10. 成績算分邏輯 (calculateScore)
+    // ==========================================
+    function calculateScore() {
+      let correctCount = 0;
+
+      for (let zone of dropZones) {
+        if (zone.occupantBlock) {
+          if (zone.occupantBlock.name === zone.animal.name) {
+            correctCount++;
+          }
+        }
+      }
+
+      score = Math.round((correctCount / dropZones.length) * 100);
+      isSubmitted = true;
+
+      // 當分數達到 60 分以上，觸發彩帶噴發粒子初始化
+      if (score >= 60) {
+        createConfettiCluster();
+      }
+    }
+  </script>
+</body>
+</html>
